@@ -1,0 +1,12 @@
+{
+  "name": "interest-track",
+  "version": "1.0.0",
+  "private": true,
+  "description": "股息追踪 Portfolio — 单文件本地股票持仓管理工具",
+  "scripts": {
+    "test": "node test/run.js"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2"
+  }
+}

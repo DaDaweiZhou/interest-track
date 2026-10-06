@@ -32,6 +32,17 @@ python3 -m http.server 8000
 
 所有数据存储在浏览器本地存储（localStorage）中，不会上传到任何服务器。
 
+## 测试
+
+应用本身双击即用、无需构建；改代码后可用一组无头用例回归（jsdom 加载页面 + 桩行情，不联网）：
+
+```bash
+npm install
+npm test
+```
+
+详见 [test/README.md](test/README.md)。
+
 ## 股票代码格式
 
 输入统一为 6 位数字代码，程序自动补市场前缀：
