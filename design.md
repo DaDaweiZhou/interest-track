@@ -4,7 +4,7 @@
 
 | 项 | 方案 | 理由 |
 |----|------|------|
-| 实现方式 | 单文件 `index.html`（内嵌 CSS + JS） | 无需构建、无需服务器、双击即用 |
+| 实现方式 | 单文件 `Interest.html`（内嵌 CSS + JS） | 无需构建、无需服务器、双击即用 |
 | 语言 | 原生 HTML5 + CSS3 + ES6 | 无依赖，兼容现代浏览器 |
 | 数据存储 | 浏览器 `localStorage` | 本地持久化，无后端 |
 | 行情数据 | 腾讯行情接口 `qt.gtimg.cn` | 免费、无需 Key、支持跨域（`Access-Control-Allow-Origin: *`） |
@@ -327,10 +327,11 @@ dividendYield = fields[64];   // 股息率（%）
 ## 7. 目录结构
 
 ```
-Interest/
-├── index.html       # 主文件（全部功能）
-├── 需求文档.md
-└── 设计文档.md
+interest-track/
+├── Interest.html      # 主文件（全部功能）
+├── requirement.md     # 需求文档
+├── design.md          # 设计文档
+└── README.md          # 使用说明
 ```
 
 ## 8. 后续可扩展方向

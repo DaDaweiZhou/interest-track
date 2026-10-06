@@ -694,6 +694,8 @@
   var search = '';
   var wSearch = '';
   var editingId = null;
+  var editDraft = null;   // 编辑中尚未保存的输入，重绘时保留
+  var editFocus = null;   // 编辑中光标的字段与位置，重绘后恢复
 
   var $ = function (sel) { return document.querySelector(sel); };
 
@@ -876,7 +878,7 @@
     var filtered = holdings.filter(function (h) {
       var s = search.trim();
       if (!s) return true;
-      return h.name.indexOf(s) > -1 || h.code.indexOf(s) === 0;
+      return String(h.name == null ? '' : h.name).indexOf(s) > -1 || String(h.code || '').indexOf(s) === 0;
     });
 
     var sorted = filtered.slice().sort(function (a, b) {
@@ -906,10 +908,14 @@
 
     var totalValue = holdings.reduce(function (s, h) { return s + calcMetrics(h).marketValue; }, 0);
 
+    // 重绘前先保存编辑框中尚未提交的输入，避免刷新行情时清掉用户正在输入的内容
+    captureEditDraft();
+
     var html = sorted.map(function (h) {
       return h.id === editingId ? renderHoldEditRow(h) : renderHoldRow(h, totalValue);
     }).join('');
     tbody.innerHTML = html;
+    restoreEditFocus();
   }
 
   function renderHoldRow(h, totalValue) {
@@ -922,6 +928,11 @@
     var rateSign = m.profitRate > 0 ? '+' : '';
     var daySign = m.dayProfit > 0 ? '+' : '';
     var name = escapeHtml(h.name);
+    // 成本价可为 0 或负数（分红摊薄），此时盈亏率没有意义，显示 --
+    var hasRate = m.cost > 0;
+    var rateHtml = hasRate
+      ? '<span class="pill ' + rateCls + '">' + rateSign + fmtPercent(m.profitRate) + '</span>'
+      : '<span class="pill">--</span>';
     return '' +
       '<tr data-id="' + h.id + '">' +
         '<td class="code-cell"><span class="badge">' + escapeHtml(h.code) + '</span></td>' +
@@ -933,7 +944,7 @@
         '<td class="num strong">' + fmtMoney.format(m.marketValue) + '</td>' +
         '<td class="num">' + fmtMoney.format(m.cost) + '</td>' +
         '<td class="num"><span class="pill ' + profitCls + '">' + profitSign + fmtMoney.format(m.profit) + '</span></td>' +
-        '<td class="num"><span class="pill ' + rateCls + '">' + rateSign + fmtPercent(m.profitRate) + '</span></td>' +
+        '<td class="num">' + rateHtml + '</td>' +
         '<td class="num strong"><span class="' + dayCls + '">' + daySign + fmtMoney.format(m.dayProfit) + '</span></td>' +
         '<td class="num"><span class="ratio-cell"><span class="ratio-bar"><span class="fill" style="width:' + ratio.toFixed(1) + '%"></span></span><span class="ratio-num">' + fmtPercent(ratio) + '</span></span></td>' +
         '<td class="num strong"><span class="' + profitCls + '">' + fmtMoney.format(m.annualDividend) + '</span></td>' +
@@ -945,18 +956,20 @@
   }
 
   function renderHoldEditRow(h) {
-    var q = Number(h.quantity) || 0;
-    var cp = Number(h.costPrice) || 0;
-    var cur = Number(h.currentPrice) || 0;
-    var dy = Number(h.dividendYield) || 0;
+    var d = editDraft || {};
+    var val = function (field, fallback) {
+      var v = d[field];
+      if (v === undefined || v === null) v = fallback;
+      return escapeHtml(String(v));
+    };
     return '' +
       '<tr class="editing" data-id="' + h.id + '">' +
         '<td class="code-cell">' + escapeHtml(h.code) + '</td>' +
-        '<td><input data-field="name" value="' + escapeHtml(h.name) + '"></td>' +
-        '<td><input data-field="quantity" value="' + q + '" inputmode="numeric"></td>' +
-        '<td><input data-field="costPrice" value="' + cp + '" inputmode="decimal"></td>' +
-        '<td><input data-field="currentPrice" value="' + cur + '" inputmode="decimal"></td>' +
-        '<td><input data-field="dividendYield" value="' + dy + '" inputmode="decimal"></td>' +
+        '<td><input data-field="name" value="' + val('name', h.name) + '"></td>' +
+        '<td><input data-field="quantity" value="' + val('quantity', Number(h.quantity) || 0) + '" inputmode="numeric"></td>' +
+        '<td><input data-field="costPrice" value="' + val('costPrice', Number(h.costPrice) || 0) + '" inputmode="decimal"></td>' +
+        '<td><input data-field="currentPrice" value="' + val('currentPrice', Number(h.currentPrice) || 0) + '" inputmode="decimal"></td>' +
+        '<td><input data-field="dividendYield" value="' + val('dividendYield', Number(h.dividendYield) || 0) + '" inputmode="decimal"></td>' +
         '<td class="num">--</td>' +
         '<td class="num">--</td>' +
         '<td class="num">--</td>' +
@@ -981,7 +994,7 @@
     var filtered = watchlist.filter(function (w) {
       var s = wSearch.trim();
       if (!s) return true;
-      return w.name.indexOf(s) > -1 || w.code.indexOf(s) === 0;
+      return String(w.name == null ? '' : w.name).indexOf(s) > -1 || String(w.code || '').indexOf(s) === 0;
     });
 
     var sorted = filtered.slice().sort(function (a, b) {
@@ -1051,7 +1064,9 @@
         '<span class="t-code">' + escapeHtml(stk.code) + ' · 现价 ' + fmtMoney.format(price) + ' · 股息 ' + fmtPercent(dy) + '</span></td>';
 
       if (dy <= 0 || price <= 0) {
-        return '<tr>' + nameCell + '<td class="num" colspan="8">无股息数据</td></tr>';
+        var blanks = '';
+        for (var i = 1; i < TARGET_TIERS.length; i++) blanks += '<td class="num"></td>';
+        return '<tr>' + nameCell + '<td class="num">无股息数据</td>' + blanks + '</tr>';
       }
 
       var cells = TARGET_TIERS.map(function (y) {
@@ -1149,7 +1164,39 @@
 
   function startEdit(id) {
     editingId = id;
+    editDraft = null;
     renderHoldTable();
+  }
+
+  // 保存编辑框中的实时输入与光标位置；编辑框已被过滤掉时保留上一份草稿
+  function captureEditDraft() {
+    editFocus = null;
+    if (editingId === null) { editDraft = null; return; }
+    var row = document.querySelector('#tbody tr[data-id="' + editingId + '"]');
+    var inputs = row ? row.querySelectorAll('input[data-field]') : null;
+    if (!inputs || inputs.length === 0) return;
+    var draft = {};
+    Array.prototype.forEach.call(inputs, function (el) { draft[el.dataset.field] = el.value; });
+    editDraft = draft;
+
+    var ae = document.activeElement;
+    if (ae && row.contains(ae) && ae.dataset && ae.dataset.field) {
+      editFocus = { field: ae.dataset.field, start: null, end: null };
+      try { editFocus.start = ae.selectionStart; editFocus.end = ae.selectionEnd; } catch (e) {}
+    }
+  }
+
+  // 重绘后把焦点与光标还回编辑框，避免定时刷新打断正在输入的内容
+  function restoreEditFocus() {
+    var f = editFocus;
+    editFocus = null;
+    if (!f) return;
+    var el = document.querySelector('#tbody tr.editing input[data-field="' + f.field + '"]');
+    if (!el) return;
+    el.focus();
+    if (f.start !== null && f.end !== null) {
+      try { el.setSelectionRange(f.start, f.end); } catch (e) {}
+    }
   }
 
   function saveEdit(id) {
@@ -1172,13 +1219,16 @@
 
     var idx = holdings.findIndex(function (h) { return h.id === id; });
     if (idx > -1) {
+      var old = holdings[idx];
       holdings[idx] = {
         id: id,
-        code: holdings[idx].code,
+        code: old.code,
         name: name,
         quantity: Number(quantity),
         costPrice: Number(costPrice),
         currentPrice: currentPrice === '' ? 0 : Number(currentPrice),
+        // 昨收价不在编辑表单中，必须原样保留，否则当日盈亏会被清零
+        prevClose: Number(old.prevClose) || 0,
         dividendYield: dividendYield === '' ? 0 : Number(dividendYield),
         updatedAt: new Date().toISOString()
       };
@@ -1186,13 +1236,14 @@
       toast('已保存修改');
     }
     editingId = null;
+    editDraft = null;
     render();
   }
 
   function deleteHolding(id) {
     if (!confirm('确定要删除这条持仓吗？')) return;
     holdings = holdings.filter(function (h) { return h.id !== id; });
-    if (editingId === id) editingId = null;
+    if (editingId === id) { editingId = null; editDraft = null; }
     saveHoldings();
     render();
     toast('已删除持仓');
@@ -1266,6 +1317,9 @@
   /* ---------- 一键刷新 ---------- */
   function refreshQuotes() {
     if (holdings.length === 0 && watchlist.length === 0) { toast('暂无持仓或关注可刷新'); return; }
+    // 与定时静默刷新互斥，避免同一时间发起两轮请求
+    if (refreshInFlight) { toast('行情刷新中，请稍候'); return; }
+    refreshInFlight = true;
     var btn = $('#btnRefresh');
     btn.disabled = true;
     btn.textContent = '刷新中…';
@@ -1292,9 +1346,13 @@
     chain.then(function () {
       saveHoldings();
       saveWatchlist();
-      render();
-      btn.disabled = false;
-      btn.textContent = '刷新行情';
+      try {
+        render();
+      } finally {
+        refreshInFlight = false;
+        btn.disabled = false;
+        btn.textContent = '刷新行情';
+      }
       toast('行情刷新完成：成功 ' + ok + ' 条，失败 ' + fail + ' 条');
     });
   }
@@ -1302,7 +1360,6 @@
   /* ---------- 自动刷新（静默） ---------- */
   function silentRefresh() {
     if (refreshInFlight) return;
-    if (editingId !== null) return;
     if (holdings.length === 0 && watchlist.length === 0) return;
     refreshInFlight = true;
 
@@ -1313,6 +1370,8 @@
     var chain = Promise.resolve();
     all.forEach(function (item) {
       chain = chain.then(function () {
+        // 只跳过正在编辑的那一条，其余行情照常刷新
+        if (item.isHold && item.rec.id === editingId) return;
         return fetchQuote(item.rec.code).then(function (q) {
           item.rec.currentPrice = q.currentPrice;
           if (isFinite(q.prevClose)) item.rec.prevClose = q.prevClose;
@@ -1324,10 +1383,15 @@
     });
 
     return chain.then(function () {
-      refreshInFlight = false;
-      saveHoldings();
-      saveWatchlist();
-      render();
+      try {
+        saveHoldings();
+        saveWatchlist();
+        render();
+      } catch (e) {
+        // 静默刷新失败时保留上一份显示数据，并确保下一轮轮询不被卡死
+      } finally {
+        refreshInFlight = false;
+      }
     });
   }
 
@@ -1386,11 +1450,15 @@
     toast('已导出 JSON 文件（含持仓与关注）');
   }
 
+  function normalizeId(id) {
+    // 导入数据里的 id 会写进 HTML 属性并用于选择器，只接受安全字符
+    return (typeof id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(id)) ? id : uid();
+  }
   function normalizeHolding(r) {
     return {
-      id: r.id || uid(),
+      id: normalizeId(r.id),
       code: String(r.code).trim(),
-      name: String(r.name || r.code),
+      name: String(r.name == null || r.name === '' ? r.code : r.name),
       quantity: Number(r.quantity) || 0,
       costPrice: Number(r.costPrice) || 0,
       currentPrice: Number(r.currentPrice) || 0,
@@ -1401,9 +1469,9 @@
   }
   function normalizeWatch(r) {
     return {
-      id: r.id || uid(),
+      id: normalizeId(r.id),
       code: String(r.code).trim(),
-      name: String(r.name || r.code),
+      name: String(r.name == null || r.name === '' ? r.code : r.name),
       currentPrice: Number(r.currentPrice) || 0,
       prevClose: Number(r.prevClose) || 0,
       dividendYield: Number(r.dividendYield) || 0,
@@ -1421,14 +1489,16 @@
         var data = JSON.parse(reader.result);
         var hArr, wArr;
         if (Array.isArray(data)) { hArr = data; wArr = []; }
-        else if (data && typeof data === 'object') { hArr = data.holdings || []; wArr = data.watchlist || []; }
-        else throw new Error('bad');
+        else if (data && typeof data === 'object') {
+          hArr = Array.isArray(data.holdings) ? data.holdings : [];
+          wArr = Array.isArray(data.watchlist) ? data.watchlist : [];
+        } else throw new Error('bad');
 
         var validH = hArr.filter(function (r) {
-          return /^\d{6}$/.test(String(r.code || '')) && Number(r.quantity) > 0;
+          return r && typeof r === 'object' && /^\d{6}$/.test(String(r.code || '')) && Number(r.quantity) > 0;
         });
         var validW = wArr.filter(function (r) {
-          return /^\d{6}$/.test(String(r.code || ''));
+          return r && typeof r === 'object' && /^\d{6}$/.test(String(r.code || ''));
         });
 
         if (validH.length === 0 && validW.length === 0) { toast('导入失败：文件中没有有效数据'); return; }
@@ -1437,6 +1507,7 @@
         holdings = validH.map(normalizeHolding);
         watchlist = validW.map(normalizeWatch);
         editingId = null;
+        editDraft = null;
         saveHoldings();
         saveWatchlist();
         render();
@@ -1457,6 +1528,7 @@
       if (!confirm('确定要清空全部持仓吗？此操作不可恢复！')) return;
       holdings = [];
       editingId = null;
+      editDraft = null;
       saveHoldings();
       render();
       toast('已清空全部持仓');
@@ -1478,6 +1550,7 @@
       { id: uid(), code: '300750', name: '宁德时代', quantity: 200, costPrice: 220, currentPrice: 186.5, prevClose: 185.2, dividendYield: 1.2, updatedAt: new Date().toISOString() }
     ];
     editingId = null;
+    editDraft = null;
     saveHoldings();
     render();
     toast('已载入示例持仓');
@@ -1598,6 +1671,12 @@
     $('#search').addEventListener('input', function (e) { search = e.target.value; renderHoldTable(); });
     $('#wSearch').addEventListener('input', function (e) { wSearch = e.target.value; renderWatchTable(); });
 
+    // 手工改动代码或现价后，之前查询到的昨收价/涨跌幅已不属于当前股票，作废处理
+    $('#code').addEventListener('input', function () { $('#prevClose').value = ''; });
+    $('#currentPrice').addEventListener('input', function () { $('#prevClose').value = ''; });
+    $('#wCode').addEventListener('input', function () { $('#wPrevClose').value = ''; $('#wChange').value = ''; });
+    $('#wPrice').addEventListener('input', function () { $('#wPrevClose').value = ''; $('#wChange').value = ''; });
+
     $('#code').addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); handleQuery(); }
     });
@@ -1649,7 +1728,7 @@
       if (action === 'edit') startEdit(id);
       else if (action === 'delete') deleteHolding(id);
       else if (action === 'save') saveEdit(id);
-      else if (action === 'cancel') { editingId = null; renderHoldTable(); }
+      else if (action === 'cancel') { editingId = null; editDraft = null; renderHoldTable(); }
     });
 
     $('#wTbody').addEventListener('click', function (e) {
@@ -1672,7 +1751,7 @@
       if (document.hidden) {
         stopAutoRefresh();
       } else {
-        silentRefresh();
+        if (autoRefreshOn) silentRefresh();
         startAutoRefresh();
       }
     });
